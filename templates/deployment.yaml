@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.agent.name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.agent.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.agent.name }}
+    spec:
+      serviceAccountName: {{ .Values.agent.name }}-sa
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.containerImage.registry }}/{{ .Values.agent.containerImage.repository }}:{{ .Values.agent.containerImage.tag }}"
+          imagePullPolicy: IfNotPresent
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+          env:
+            # ChaosCenter connection
+            - name: CHAOS_CENTER_ENDPOINT
+              value: {{ .Values.app.chaosCenter.endpoint | quote }}
+
+            - name: CHAOS_PROJECT_ID
+              value: {{ .Values.app.chaosCenter.projectId | quote }}
+
+            - name: CHAOS_CLUSTER_ID
+              value: {{ .Values.app.chaosCenter.clusterId | quote }}
+
+            # Agent identity
+            - name: AGENT_NAME
+              value: {{ .Values.agent.name | quote }}
+
+            - name: AGENT_MODE
+              value: {{ .Values.agent.mode | quote }}
+
+            - name: AGENT_SCOPE
+              value: {{ .Values.agent.scope | quote }}
+
+            # Infra dependencies
+            - name: MONGO_URI
+              value: {{ .Values.env.mongoUri | quote }}
+
+          volumeMounts:
+            - name: agent-metadata
+              mountPath: /etc/agent/metadata
+              readOnly: true
+
+      volumes:
+        - name: agent-metadata
+          configMap:
+            name: {{ .Values.agent.name }}-metadata

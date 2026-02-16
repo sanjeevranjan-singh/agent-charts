@@ -1,0 +1,6 @@
+apiVersion: v2
+name: agent-chart
+description: Generic Agent Helm Chart for onboarding agents
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
