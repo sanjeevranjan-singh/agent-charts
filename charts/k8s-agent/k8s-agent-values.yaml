@@ -1,0 +1,73 @@
+app:
+  chaosCenter:
+    endpoint: http://chaoscenter.litmus.svc.cluster.local
+    projectId: litmus-project-1
+    clusterId: cluster-1
+
+agent:
+  name: k8s-agent
+  version: "1.0.0"
+  vendor: "Litmus"
+
+  mode: active          # Litmus agents are usually active
+  scope: cluster        # cluster / namespace
+
+  capabilities:
+    - kubernetes fault detection, remediation
+
+  supportedExperiments:
+    - kubernetes fault detection, remediation
+
+  containerImage:
+    registry: docker.io
+    repository: k8s-agent
+    tag: latest
+
+  config:
+    LITELLM_URL: "http://litellm-proxy.litellm.svc.cluster.local:4000"
+    MODEL_ALIAS: "gemini-3-flash"
+    K8S_NAMESPACE: "test"
+    AUTO_REMEDIATE: "true"
+
+  secret:
+    LITELLM_MASTER_KEY: "sk-1234"
+
+  deploymentEnv:
+    - name: K8S_NAMESPACE
+      key: K8S_NAMESPACE
+    - name: AUTO_REMEDIATE
+      key: AUTO_REMEDIATE
+  
+  traceTags:
+    - k8s
+    - fault-detection
+
+env:
+  mongoUri: mongodb://mongo-mongodb:27017
+
+resources:
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+rbac:
+  cluster:
+    create: true
+    rules:
+      # Read access to resources
+      - apiGroups: [""]
+        resources: ["pods","pods/log","pods/status","services","endpoints","nodes","events"]
+        verbs: ["get", "list", "watch"]
+      # Write access for remediation
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["delete", "patch"]
+      # Access to deployments
+      - apiGroups: ["apps"]
+        resources: ["deployments","replicasets","statefulsets"]
+        verbs: ["get", "list", "watch", "patch", "update"]
+
+cronjob:
+  schedule: "*/5 * * * *"
+  restartPolicy: OnFailure
+

@@ -46,6 +46,40 @@ spec:
             - name: MONGO_URI
               value: {{ .Values.env.mongoUri | quote }}
 
+            # LiteLLM Proxy Configuration
+            - name: LITELLM_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: LITELLM_URL
+            
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.name }}-secret
+                  key: LITELLM_MASTER_KEY
+            
+            - name: MODEL_ALIAS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: MODEL_ALIAS
+            
+            # Tracing Configuration
+            - name: TRACE_TAGS
+              value: {{ .Values.agent.traceTags | join "," | quote }}
+            
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.agent.name }}
+
+{{- range $env := .Values.agent.deploymentEnv }}
+            - name: {{ $env.name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $.Values.agent.name }}-metadata
+                  key: {{ $env.key }}
+{{- end }}
+
           volumeMounts:
             - name: agent-metadata
               mountPath: /etc/agent/metadata
