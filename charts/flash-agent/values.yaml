@@ -13,17 +13,42 @@ agent:
   scope: cluster        # cluster / namespace
 
   capabilities:
-    - pod-delete
-    - pod-cpu-hog
+    - kubernetes log metrics extraction
+    - langfuse trace reporting
 
   supportedExperiments:
-    - pod-delete
-    - pod-cpu-hog
+    - log-analysis
+    - health-scoring
 
   containerImage:
     registry: docker.io
-    repository: nginx
+    repository: agentcert/flash-agent
     tag: latest
+
+  config:
+    LITELLM_URL: "http://litellm-proxy.litellm.svc.cluster.local:4000"
+    MODEL_ALIAS: "gpt-4o-mini"
+    K8S_NAMESPACE: "sock-shop"
+    SCAN_INTERVAL: "0"        # 0 = run once (CronJob), >0 = continuous (Deployment)
+    LOG_TAIL_LINES: "200"
+
+  secret:
+    LITELLM_MASTER_KEY: "sk-1234"
+    LANGFUSE_SECRET_KEY: ""
+    LANGFUSE_PUBLIC_KEY: ""
+
+  deploymentEnv:
+    - name: K8S_NAMESPACE
+      key: K8S_NAMESPACE
+    - name: SCAN_INTERVAL
+      key: SCAN_INTERVAL
+    - name: LOG_TAIL_LINES
+      key: LOG_TAIL_LINES
+
+  traceTags:
+    - flash-agent
+    - itops
+    - log-metrics
 
 env:
   mongoUri: mongodb://mongo-mongodb:27017
@@ -34,8 +59,18 @@ resources:
     memory: "512Mi"
 
 rbac:
-  create: true
-  rules:
-    - apiGroups: [""]
-      resources: ["pods"]
-      verbs: ["get", "list", "watch", "delete"]
+  cluster:
+    create: true
+    rules:
+      # Read access to pods and logs
+      - apiGroups: [""]
+        resources: ["pods", "pods/log", "pods/status", "events"]
+        verbs: ["get", "list", "watch"]
+      # Read access to higher-level resources
+      - apiGroups: ["apps"]
+        resources: ["deployments", "replicasets", "statefulsets"]
+        verbs: ["get", "list", "watch"]
+
+cronjob:
+  schedule: "*/5 * * * *"
+  restartPolicy: OnFailure
