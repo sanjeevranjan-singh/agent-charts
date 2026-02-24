@@ -1,0 +1,8 @@
+{{- if .Values.rbac.cluster.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.agent.name }}-cluster-role
+rules:
+{{- toYaml .Values.rbac.cluster.rules | nindent 2 }}
+{{- end }}
