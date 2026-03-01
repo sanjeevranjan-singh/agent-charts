@@ -5,7 +5,7 @@ app:
     clusterId: cluster-1
 
 agent:
-  name: my-agent
+  name: flash-agent
   version: "1.0.0"
   vendor: "Litmus"
 
