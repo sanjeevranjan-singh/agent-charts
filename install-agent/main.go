@@ -50,7 +50,7 @@ func main() {
 func parseFlags() *Config {
 	config := &Config{}
 
-	flag.StringVar(&config.FolderName, "folder", "", "Name of the folder containing Helm chart (required)")
+	flag.StringVar(&config.FolderName, "folder", "flash-agent", "Name of the folder containing Helm chart (default: flash-agent)")
 	flag.StringVar(&config.ReleaseName, "release", "", "Helm release name (defaults to folder name)")
 	flag.StringVar(&config.Namespace, "namespace", defaultNamespace, "Kubernetes namespace to install into")
 	flag.StringVar(&config.ChartsPath, "charts-path", defaultChartsPath, "Base path where charts are located")
@@ -92,7 +92,7 @@ func parseFlags() *Config {
 
 func validateConfig(config *Config) error {
 	if config.FolderName == "" {
-		return fmt.Errorf("folder name is required. Use -folder flag")
+		return fmt.Errorf("folder name is required. Use -folder flag or set a default")
 	}
 
 	chartPath := filepath.Join(config.ChartsPath, config.FolderName)

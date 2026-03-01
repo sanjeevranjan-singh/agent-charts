@@ -2,12 +2,15 @@
 # Build and push Helm chart installer for agents
 
 # Configuration - override these with environment variables or command line
-IMAGE_REGISTRY ?= docker.io
+IMAGE_REGISTRY ?= docker.io/agentcert
 IMAGE_NAME ?= agentcert-install-agent
 IMAGE_TAG ?= latest
 
 # Full image reference
 IMAGE = $(IMAGE_REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+
+# Default chart folder
+FOLDER ?= flash-agent
 
 # Build context - parent directory (agent-charts root)
 BUILD_CONTEXT = ..
@@ -50,10 +53,7 @@ list-charts: ## List charts available in the image
 	docker run --rm --entrypoint /bin/sh $(IMAGE) -c "ls -la /charts"
 
 .PHONY: install
-install: ## Install chart (use FOLDER=<name> NAMESPACE=<ns> KUBECONFIG=<path>)
-ifndef FOLDER
-	$(error FOLDER is required. Usage: make install FOLDER=flash-agent NAMESPACE=flash-agent)
-endif
+install: ## Install chart (FOLDER=flash-agent by default, NAMESPACE=<ns> KUBECONFIG=<path>)
 	docker run --rm \
 		$(if $(KUBECONFIG),-v $(KUBECONFIG):/kubeconfig -e KUBECONFIG=/kubeconfig) \
 		$(if $(KUBE_CONTEXT),--network host) \
@@ -65,10 +65,7 @@ endif
 		$(if $(DRY_RUN),-dry-run)
 
 .PHONY: install-local
-install-local: ## Install using local kubeconfig (auto-detects ~/.kube/config)
-ifndef FOLDER
-	$(error FOLDER is required. Usage: make install-local FOLDER=flash-agent NAMESPACE=flash-agent)
-endif
+install-local: ## Install using local kubeconfig (FOLDER=flash-agent by default)
 	docker run --rm \
 		-v $(HOME)/.kube/config:/kubeconfig:ro \
 		--network host \
