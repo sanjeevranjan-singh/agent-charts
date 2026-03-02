@@ -128,6 +128,15 @@ func installChart(config *Config) error {
 		}
 	}
 
+	// Adopt any pre-existing resources so Helm can manage them on upgrade --install.
+	// This prevents "invalid ownership metadata" errors when resources were left behind
+	// from a previous Helm release (e.g., cleanup purged the release but not the resources).
+	if config.Upgrade {
+		if err := adoptExistingResources(config); err != nil {
+			log.Printf("Warning: failed to adopt existing resources: %v", err)
+		}
+	}
+
 	// Build helm command
 	var args []string
 
@@ -278,6 +287,190 @@ func ensureNamespace(namespace, releaseName string) error {
 	}
 
 	return nil
+}
+
+// adoptExistingResources uses `helm template` to discover all resources that
+// the chart will create, then checks if any already exist in the cluster without
+// proper Helm ownership metadata. If found, it labels and annotates them so that
+// `helm upgrade --install` can adopt them instead of failing with
+// "invalid ownership metadata" errors.
+//
+// This handles the case where a previous experiment run created resources via Helm,
+// but the cleanup step (or manual intervention) purged the Helm release without
+// deleting the underlying Kubernetes resources. On the next run, Helm sees orphaned
+// resources it can't claim ownership of.
+func adoptExistingResources(config *Config) error {
+	chartPath := filepath.Join(config.ChartsPath, config.FolderName)
+
+	// Build helm template command with the same args as the actual install
+	args := []string{"template", config.ReleaseName, chartPath, "--namespace", config.Namespace}
+
+	if config.ValuesFile != "" {
+		args = append(args, "-f", config.ValuesFile)
+	}
+
+	if config.SetValues != "" {
+		for _, setValue := range strings.Split(config.SetValues, ",") {
+			args = append(args, "--set", setValue)
+		}
+	}
+
+	log.Printf("Discovering chart resources via: helm %s", strings.Join(args, " "))
+
+	cmd := exec.Command("helm", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("helm template failed: %w", err)
+	}
+
+	// Parse the rendered manifests to extract resource kind/name/namespace
+	resources := parseHelmTemplateOutput(string(out))
+	if len(resources) == 0 {
+		log.Printf("No resources discovered from chart template")
+		return nil
+	}
+
+	log.Printf("Discovered %d resources from chart template", len(resources))
+
+	adopted := 0
+	for _, res := range resources {
+		if adoptResource(res, config.ReleaseName, config.Namespace) {
+			adopted++
+		}
+	}
+
+	if adopted > 0 {
+		log.Printf("Adopted %d pre-existing resources for Helm release %s", adopted, config.ReleaseName)
+	}
+
+	return nil
+}
+
+// k8sResource represents a Kubernetes resource extracted from Helm template output.
+type k8sResource struct {
+	Kind      string
+	Name      string
+	Namespace string // empty for cluster-scoped resources
+}
+
+// parseHelmTemplateOutput parses multi-document YAML from `helm template` and
+// extracts the kind, name, and namespace of each resource.
+func parseHelmTemplateOutput(output string) []k8sResource {
+	docs := strings.Split(output, "---")
+	var resources []k8sResource
+
+	for _, doc := range docs {
+		doc = strings.TrimSpace(doc)
+		if doc == "" || strings.HasPrefix(doc, "#") {
+			continue
+		}
+
+		var kind, name, namespace string
+		inMetadata := false
+
+		for _, line := range strings.Split(doc, "\n") {
+			trimmed := strings.TrimSpace(line)
+
+			// Top-level kind field
+			if strings.HasPrefix(trimmed, "kind:") && !strings.HasPrefix(line, " ") {
+				kind = strings.TrimSpace(strings.TrimPrefix(trimmed, "kind:"))
+				continue
+			}
+
+			// Enter metadata section
+			if trimmed == "metadata:" && !strings.HasPrefix(line, " ") {
+				inMetadata = true
+				continue
+			}
+
+			// Exit metadata section when we hit another top-level key
+			if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
+				inMetadata = false
+				continue
+			}
+
+			// Inside metadata, extract name and namespace
+			if inMetadata {
+				if strings.HasPrefix(trimmed, "name:") && !strings.Contains(trimmed, "/") {
+					name = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
+					// Remove quotes if present
+					name = strings.Trim(name, "\"'")
+				}
+				if strings.HasPrefix(trimmed, "namespace:") {
+					namespace = strings.TrimSpace(strings.TrimPrefix(trimmed, "namespace:"))
+					namespace = strings.Trim(namespace, "\"'")
+				}
+			}
+		}
+
+		if kind != "" && name != "" {
+			resources = append(resources, k8sResource{Kind: kind, Name: name, Namespace: namespace})
+		}
+	}
+
+	return resources
+}
+
+// adoptResource checks if a Kubernetes resource exists and, if so, ensures it has
+// the correct Helm ownership labels and annotations. Returns true if the resource
+// was adopted (i.e., it existed and was labeled).
+func adoptResource(res k8sResource, releaseName, releaseNamespace string) bool {
+	resourceType := strings.ToLower(res.Kind)
+
+	// Check if the resource exists
+	var getArgs []string
+	if res.Namespace != "" {
+		getArgs = []string{"get", resourceType, res.Name, "-n", res.Namespace, "--no-headers", "--ignore-not-found"}
+	} else {
+		getArgs = []string{"get", resourceType, res.Name, "--no-headers", "--ignore-not-found"}
+	}
+
+	checkCmd := exec.Command("kubectl", getArgs...)
+	out, err := checkCmd.Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		// Resource doesn't exist — nothing to adopt
+		return false
+	}
+
+	log.Printf("Adopting existing %s/%s for Helm release %s", res.Kind, res.Name, releaseName)
+
+	// Add Helm ownership label
+	var labelArgs []string
+	if res.Namespace != "" {
+		labelArgs = []string{"label", resourceType, res.Name, "-n", res.Namespace,
+			"app.kubernetes.io/managed-by=Helm", "--overwrite"}
+	} else {
+		labelArgs = []string{"label", resourceType, res.Name,
+			"app.kubernetes.io/managed-by=Helm", "--overwrite"}
+	}
+	labelCmd := exec.Command("kubectl", labelArgs...)
+	labelCmd.Stdout = os.Stdout
+	labelCmd.Stderr = os.Stderr
+	if err := labelCmd.Run(); err != nil {
+		log.Printf("Warning: failed to label %s/%s: %v", res.Kind, res.Name, err)
+	}
+
+	// Add Helm ownership annotations
+	var annotateArgs []string
+	if res.Namespace != "" {
+		annotateArgs = []string{"annotate", resourceType, res.Name, "-n", res.Namespace,
+			fmt.Sprintf("meta.helm.sh/release-name=%s", releaseName),
+			fmt.Sprintf("meta.helm.sh/release-namespace=%s", releaseNamespace),
+			"--overwrite"}
+	} else {
+		annotateArgs = []string{"annotate", resourceType, res.Name,
+			fmt.Sprintf("meta.helm.sh/release-name=%s", releaseName),
+			fmt.Sprintf("meta.helm.sh/release-namespace=%s", releaseNamespace),
+			"--overwrite"}
+	}
+	annotateCmd := exec.Command("kubectl", annotateArgs...)
+	annotateCmd.Stdout = os.Stdout
+	annotateCmd.Stderr = os.Stderr
+	if err := annotateCmd.Run(); err != nil {
+		log.Printf("Warning: failed to annotate %s/%s: %v", res.Kind, res.Name, err)
+	}
+
+	return true
 }
 
 // ListAvailableCharts lists all available charts in the charts path
