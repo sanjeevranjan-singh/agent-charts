@@ -23,7 +23,7 @@ type Config struct {
 	Namespace   string
 	ChartsPath  string
 	ValuesFile  string
-	SetValues   string
+	SetValues   setFlags // supports multiple --set flags
 	DryRun      bool
 	Wait        bool
 	Timeout     string
@@ -31,6 +31,17 @@ type Config struct {
 	Upgrade     bool
 	KubeConfig  string
 	KubeContext string
+}
+
+// setFlags implements flag.Value to accumulate multiple --set flags.
+// Go's flag package normally keeps only the last value for a flag;
+// this type appends each occurrence so all --set values are preserved.
+type setFlags []string
+
+func (s *setFlags) String() string { return strings.Join(*s, ",") }
+func (s *setFlags) Set(val string) error {
+	*s = append(*s, val)
+	return nil
 }
 
 func main() {
@@ -55,7 +66,7 @@ func parseFlags() *Config {
 	flag.StringVar(&config.Namespace, "namespace", defaultNamespace, "Kubernetes namespace to install into")
 	flag.StringVar(&config.ChartsPath, "charts-path", defaultChartsPath, "Base path where charts are located")
 	flag.StringVar(&config.ValuesFile, "values", "", "Path to custom values file")
-	flag.StringVar(&config.SetValues, "set", "", "Set values on command line (key=value,key2=value2)")
+	flag.Var(&config.SetValues, "set", "Set values on command line (can be repeated: --set key=value --set key2=value2)")
 	flag.BoolVar(&config.DryRun, "dry-run", false, "Simulate installation without applying")
 	flag.BoolVar(&config.Wait, "wait", true, "Wait for resources to be ready")
 	flag.StringVar(&config.Timeout, "timeout", "10m", "Timeout for installation")
@@ -155,11 +166,8 @@ func installChart(config *Config) error {
 		args = append(args, "-f", config.ValuesFile)
 	}
 
-	if config.SetValues != "" {
-		// Parse comma-separated key=value pairs
-		for _, setValue := range strings.Split(config.SetValues, ",") {
-			args = append(args, "--set", setValue)
-		}
+	for _, setValue := range config.SetValues {
+		args = append(args, "--set", setValue)
 	}
 
 	if config.DryRun {
@@ -309,10 +317,8 @@ func adoptExistingResources(config *Config) error {
 		args = append(args, "-f", config.ValuesFile)
 	}
 
-	if config.SetValues != "" {
-		for _, setValue := range strings.Split(config.SetValues, ",") {
-			args = append(args, "--set", setValue)
-		}
+	for _, setValue := range config.SetValues {
+		args = append(args, "--set", setValue)
 	}
 
 	log.Printf("Discovering chart resources via: helm %s", strings.Join(args, " "))
@@ -361,7 +367,7 @@ func parseHelmTemplateOutput(output string) []k8sResource {
 
 	for _, doc := range docs {
 		doc = strings.TrimSpace(doc)
-		if doc == "" || strings.HasPrefix(doc, "#") {
+		if doc == "" {
 			continue
 		}
 
@@ -371,30 +377,39 @@ func parseHelmTemplateOutput(output string) []k8sResource {
 		for _, line := range strings.Split(doc, "\n") {
 			trimmed := strings.TrimSpace(line)
 
-			// Top-level kind field
-			if strings.HasPrefix(trimmed, "kind:") && !strings.HasPrefix(line, " ") {
+			// Skip blank lines and comment lines (e.g., "# Source: ...")
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+
+			// Top-level kind field (not indented)
+			if strings.HasPrefix(trimmed, "kind:") && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
 				kind = strings.TrimSpace(strings.TrimPrefix(trimmed, "kind:"))
 				continue
 			}
 
-			// Enter metadata section
-			if trimmed == "metadata:" && !strings.HasPrefix(line, " ") {
+			// Enter metadata section (top-level)
+			if trimmed == "metadata:" && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
 				inMetadata = true
 				continue
 			}
 
 			// Exit metadata section when we hit another top-level key
-			if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
+			if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
 				inMetadata = false
-				continue
 			}
 
-			// Inside metadata, extract name and namespace
+			// Inside metadata, extract name and namespace (first-level indented keys)
 			if inMetadata {
+				// Only match direct children of metadata (2-space indent),
+				// not nested keys like annotations/labels children
 				if strings.HasPrefix(trimmed, "name:") && !strings.Contains(trimmed, "/") {
-					name = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
-					// Remove quotes if present
-					name = strings.Trim(name, "\"'")
+					// Make sure it's a direct child (indented 2 spaces, not deeper)
+					indent := len(line) - len(strings.TrimLeft(line, " \t"))
+					if indent <= 4 {
+						name = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
+						name = strings.Trim(name, "\"'")
+					}
 				}
 				if strings.HasPrefix(trimmed, "namespace:") {
 					namespace = strings.TrimSpace(strings.TrimPrefix(trimmed, "namespace:"))
