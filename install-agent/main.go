@@ -432,14 +432,19 @@ func parseHelmTemplateOutput(output string) []k8sResource {
 func adoptResource(res k8sResource, releaseName, releaseNamespace string) bool {
 	resourceType := strings.ToLower(res.Kind)
 
-	// Check if the resource exists
-	var getArgs []string
-	if res.Namespace != "" {
-		getArgs = []string{"get", resourceType, res.Name, "-n", res.Namespace, "--no-headers", "--ignore-not-found"}
-	} else {
-		getArgs = []string{"get", resourceType, res.Name, "--no-headers", "--ignore-not-found"}
+	// helm template does NOT inject namespace into rendered YAML metadata, even
+	// when --namespace is passed. That means res.Namespace will be empty for all
+	// namespaced resources (ServiceAccount, Secret, ConfigMap, Deployment, etc.).
+	// Use releaseNamespace as the fallback so kubectl looks in the right place.
+	// For cluster-scoped resources (ClusterRole, ClusterRoleBinding) kubectl
+	// simply ignores the -n flag, so it's always safe to pass it.
+	ns := res.Namespace
+	if ns == "" {
+		ns = releaseNamespace
 	}
 
+	// Check if the resource exists
+	getArgs := []string{"get", resourceType, res.Name, "-n", ns, "--no-headers", "--ignore-not-found"}
 	checkCmd := exec.Command("kubectl", getArgs...)
 	out, err := checkCmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) == "" {
@@ -447,17 +452,11 @@ func adoptResource(res k8sResource, releaseName, releaseNamespace string) bool {
 		return false
 	}
 
-	log.Printf("Adopting existing %s/%s for Helm release %s", res.Kind, res.Name, releaseName)
+	log.Printf("Adopting existing %s/%s (ns=%s) for Helm release %s", res.Kind, res.Name, ns, releaseName)
 
 	// Add Helm ownership label
-	var labelArgs []string
-	if res.Namespace != "" {
-		labelArgs = []string{"label", resourceType, res.Name, "-n", res.Namespace,
-			"app.kubernetes.io/managed-by=Helm", "--overwrite"}
-	} else {
-		labelArgs = []string{"label", resourceType, res.Name,
-			"app.kubernetes.io/managed-by=Helm", "--overwrite"}
-	}
+	labelArgs := []string{"label", resourceType, res.Name, "-n", ns,
+		"app.kubernetes.io/managed-by=Helm", "--overwrite"}
 	labelCmd := exec.Command("kubectl", labelArgs...)
 	labelCmd.Stdout = os.Stdout
 	labelCmd.Stderr = os.Stderr
@@ -466,18 +465,10 @@ func adoptResource(res k8sResource, releaseName, releaseNamespace string) bool {
 	}
 
 	// Add Helm ownership annotations
-	var annotateArgs []string
-	if res.Namespace != "" {
-		annotateArgs = []string{"annotate", resourceType, res.Name, "-n", res.Namespace,
-			fmt.Sprintf("meta.helm.sh/release-name=%s", releaseName),
-			fmt.Sprintf("meta.helm.sh/release-namespace=%s", releaseNamespace),
-			"--overwrite"}
-	} else {
-		annotateArgs = []string{"annotate", resourceType, res.Name,
-			fmt.Sprintf("meta.helm.sh/release-name=%s", releaseName),
-			fmt.Sprintf("meta.helm.sh/release-namespace=%s", releaseNamespace),
-			"--overwrite"}
-	}
+	annotateArgs := []string{"annotate", resourceType, res.Name, "-n", ns,
+		fmt.Sprintf("meta.helm.sh/release-name=%s", releaseName),
+		fmt.Sprintf("meta.helm.sh/release-namespace=%s", releaseNamespace),
+		"--overwrite"}
 	annotateCmd := exec.Command("kubectl", annotateArgs...)
 	annotateCmd.Stdout = os.Stdout
 	annotateCmd.Stderr = os.Stderr
