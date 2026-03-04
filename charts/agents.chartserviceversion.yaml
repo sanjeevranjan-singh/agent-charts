@@ -1,0 +1,41 @@
+apiVersion: agentcert.io/v1alpha1
+kind: ChartServiceVersion
+metadata:
+  name: agents
+  version: 0.1.0
+  annotations:
+    categories: AI Agents
+    vendor: AgentCert
+    chartDescription: >-
+      AI agents that observe, diagnose, and remediate faults in Kubernetes environments.
+spec:
+  displayName: AI Agents
+  categoryDescription: >-
+    AI-powered agents that integrate with LitmusChaos to monitor, detect,
+    and autonomously remediate faults in Kubernetes clusters.
+  keywords:
+    - ai-agent
+    - kubernetes
+    - observability
+    - remediation
+  maturity: alpha
+  maintainers:
+    - name: AgentCert Team
+      email: agentcert@microsoft.com
+  provider:
+    name: AgentCert
+  agents:
+    - name: flash-agent
+      displayName: Flash Agent
+      description: "AI-powered log analysis agent that extracts metrics from Kubernetes pod logs using LLM and reports to Langfuse."
+      version: "1.0.0"
+      capabilities:
+        - log-metrics-extraction
+        - langfuse-trace-reporting
+    - name: k8s-agent
+      displayName: K8s Agent
+      description: "Kubernetes fault detection and autonomous remediation agent that monitors cluster health and auto-fixes issues."
+      version: "1.0.0"
+      capabilities:
+        - fault-detection
+        - auto-remediation
