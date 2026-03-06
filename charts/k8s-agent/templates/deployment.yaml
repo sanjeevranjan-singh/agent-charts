@@ -65,6 +65,10 @@ spec:
                   name: {{ .Values.agent.name }}-metadata
                   key: MODEL_ALIAS
             
+            # Scan interval – Deployment runs continuously
+            - name: SCAN_INTERVAL
+              value: {{ .Values.agent.scanInterval | default "300" | quote }}
+
             # Tracing Configuration
             - name: TRACE_TAGS
               value: {{ .Values.agent.traceTags | join "," | quote }}

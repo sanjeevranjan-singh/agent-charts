@@ -1,19 +1,21 @@
+# Local dev override for k8s-agent (minikube)
 app:
   chaosCenter:
-    endpoint: http://chaoscenter.litmus.svc.cluster.local
-    projectId: litmus-project-1
-    clusterId: cluster-1
+    endpoint: http://host.minikube.internal:8080
+    projectId: f90a1f63-b137-4d0d-b9da-6645fc6de524
+    clusterId: dd859ef4-cf22-43ec-b09e-eb59b3fe5f86
 
 agent:
   name: k8s-agent
   version: "1.0.0"
   vendor: "Litmus"
 
-  mode: active          # Litmus agents are usually active
-  scope: cluster        # cluster / namespace
+  mode: active
+  scope: cluster
 
   capabilities:
-    - kubernetes fault detection, remediation
+    - fault-detection
+    - auto-remediation
 
   supportedExperiments:
     - kubernetes fault detection, remediation
@@ -26,7 +28,7 @@ agent:
   config:
     LITELLM_URL: "http://litellm-proxy.litellm.svc.cluster.local:4000"
     MODEL_ALIAS: "gemini-3-flash"
-    K8S_NAMESPACE: "test"
+    K8S_NAMESPACE: "sock-shop"
     AUTO_REMEDIATE: "true"
 
   secret:
@@ -37,10 +39,13 @@ agent:
       key: K8S_NAMESPACE
     - name: AUTO_REMEDIATE
       key: AUTO_REMEDIATE
-  
+
   traceTags:
-    - k8s
+    - k8s-agent
     - fault-detection
+    - auto-remediation
+
+  scanInterval: "300"
 
 env:
   mongoUri: mongodb://mongo-mongodb:27017
@@ -70,4 +75,3 @@ rbac:
 cronjob:
   schedule: "*/5 * * * *"
   restartPolicy: OnFailure
-
