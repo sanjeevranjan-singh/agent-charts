@@ -64,6 +64,19 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.agent.name }}-metadata
                   key: MODEL_ALIAS
+
+            # OpenAI SDK compatibility — points to LiteLLM proxy
+            - name: OPENAI_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: LITELLM_URL
+            
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.name }}-secret
+                  key: LITELLM_MASTER_KEY
             
             # Tracing Configuration
             - name: TRACE_TAGS
