@@ -73,4 +73,7 @@ rbac:
 
 cronjob:
   schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
   restartPolicy: OnFailure
