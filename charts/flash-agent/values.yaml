@@ -31,7 +31,7 @@ agent:
     K8S_NAMESPACE: "sock-shop"
     SCAN_INTERVAL: "0"        # 0 = run once (CronJob), >0 = continuous (Deployment)
     LOG_TAIL_LINES: "200"
-    OTEL_EXPORTER_OTLP_ENDPOINT: ""   # Set to Langfuse OTEL endpoint, e.g. https://<LANGFUSE_HOST>/api/public/otel
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://100.78.130.20:3001/api/public/otel"
 
   secret:
     LITELLM_MASTER_KEY: "sk-1234"
