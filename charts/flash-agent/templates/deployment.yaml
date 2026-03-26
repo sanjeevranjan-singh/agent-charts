@@ -85,6 +85,24 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: {{ .Values.agent.name }}
 
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+
+            - name: LANGFUSE_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.name }}-secret
+                  key: LANGFUSE_PUBLIC_KEY
+
+            - name: LANGFUSE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.name }}-secret
+                  key: LANGFUSE_SECRET_KEY
+
 {{- range $env := .Values.agent.deploymentEnv }}
             - name: {{ $env.name }}
               valueFrom:
