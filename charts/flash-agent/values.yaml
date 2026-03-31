@@ -24,27 +24,69 @@ agent:
     registry: docker.io
     repository: agentcert/flash-agent
     tag: latest
+    pullPolicy: Always   # Changed from IfNotPresent for rapid iteration
 
   config:
+    # --- LiteLLM Proxy ---
     LITELLM_URL: "http://litellm-proxy.litellm.svc.cluster.local:4000"
     MODEL_ALIAS: "gpt-4o-mini"
+    # OpenAI SDK compatibility — note the /v1 suffix required by the SDK
+    OPENAI_BASE_URL: "http://litellm-proxy.litellm.svc.cluster.local:4000/v1"
+    OPENAI_API_KEY: "sk-agentcert-2026"
+
+    # --- Agent runtime ---
     K8S_NAMESPACE: "sock-shop"
-    SCAN_INTERVAL: "0"        # 0 = run once (CronJob), >0 = continuous (Deployment)
-    LOG_TAIL_LINES: "200"
+    CHAOS_NAMESPACE: "litmus"
+    SCAN_INTERVAL: "60"       # seconds; 0 = run once (CronJob), >0 = continuous (Deployment)
+    LOG_TAIL_LINES: "500"
+
+    # --- Langfuse / OTEL tracing ---
+    LANGFUSE_BASE_URL: "http://100.78.130.20:3001"
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://100.78.130.20:3001/api/public/otel"
+    OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic cGstbGYtNzhiM2QyMTAtOTY5NS00MWIzLThkMjktZDBiMWRkZDFmZjRkOnNrLWxmLWFkMjExMmIyLTY0MjEtNGFjMS1hYmVhLTUxZDNkZGE1NDkwMg=="
+
+    # --- MCP tool servers ---
+    K8S_MCP_URL: "http://kubernetes-mcp-server.litmus.svc.cluster.local:8081/mcp"
+    PROM_MCP_URL: "http://prometheus-mcp-server.litmus.svc.cluster.local:9090/mcp"
+    MCP_TIMEOUT: "30"
 
   secret:
-    LITELLM_MASTER_KEY: "sk-1234"
-    LANGFUSE_SECRET_KEY: ""
-    LANGFUSE_PUBLIC_KEY: ""
+    LITELLM_MASTER_KEY: "sk-agentcert-2026"
+    LANGFUSE_SECRET_KEY: "sk-lf-ad2112b2-6421-4ac1-abea-51d3dda54902"
+    LANGFUSE_PUBLIC_KEY: "pk-lf-78b3d210-9695-41b3-8d29-d0b1ddd1ff4d"
 
   deploymentEnv:
+    # Existing
     - name: K8S_NAMESPACE
       key: K8S_NAMESPACE
     - name: SCAN_INTERVAL
       key: SCAN_INTERVAL
     - name: LOG_TAIL_LINES
       key: LOG_TAIL_LINES
+    # OpenAI SDK compat (separate keys with /v1 suffix)
+    - name: OPENAI_BASE_URL
+      key: OPENAI_BASE_URL
+    - name: OPENAI_API_KEY
+      key: OPENAI_API_KEY
+    # Langfuse
+    - name: LANGFUSE_BASE_URL
+      key: LANGFUSE_BASE_URL
+    - name: LANGFUSE_HOST
+      key: LANGFUSE_BASE_URL
+    - name: OTEL_EXPORTER_OTLP_HEADERS
+      key: OTEL_EXPORTER_OTLP_HEADERS
+    # MCP tool servers
+    - name: K8S_MCP_URL
+      key: K8S_MCP_URL
+    - name: PROM_MCP_URL
+      key: PROM_MCP_URL
+    - name: MCP_TIMEOUT
+      key: MCP_TIMEOUT
+    # Chaos
+    - name: CHAOS_NAMESPACE
+      key: CHAOS_NAMESPACE
+
+  mcpInteractionsFile: "/tmp/mcp/mcp_interactions.jsonl"
 
   traceTags:
     - flash-agent
@@ -57,7 +99,7 @@ env:
 resources:
   limits:
     cpu: "500m"
-    memory: "512Mi"
+    memory: "1.5Gi"     # Bumped from 512Mi — agent needs more for LLM tool-call chains
 
 rbac:
   cluster:
