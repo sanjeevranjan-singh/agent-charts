@@ -16,7 +16,7 @@ spec:
       containers:
         - name: agent
           image: "{{ .Values.agent.containerImage.registry }}/{{ .Values.agent.containerImage.repository }}:{{ .Values.agent.containerImage.tag }}"
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: {{ .Values.agent.containerImage.pullPolicy | default "IfNotPresent" }}
 
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -65,19 +65,6 @@ spec:
                   name: {{ .Values.agent.name }}-metadata
                   key: MODEL_ALIAS
 
-            # OpenAI SDK compatibility — points to LiteLLM proxy
-            - name: OPENAI_BASE_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.agent.name }}-metadata
-                  key: LITELLM_URL
-            
-            - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.agent.name }}-secret
-                  key: LITELLM_MASTER_KEY
-            
             # Tracing Configuration
             - name: TRACE_TAGS
               value: {{ .Values.agent.traceTags | join "," | quote }}
@@ -110,6 +97,12 @@ spec:
                   name: {{ $.Values.agent.name }}-metadata
                   key: {{ $env.key }}
 {{- end }}
+
+            # MCP interactions log
+            {{- if .Values.agent.mcpInteractionsFile }}
+            - name: MCP_INTERACTIONS_FILE
+              value: {{ .Values.agent.mcpInteractionsFile | quote }}
+            {{- end }}
 
           volumeMounts:
             - name: agent-metadata
