@@ -24,6 +24,13 @@ data:
     litellm_settings:
       drop_params: true
       set_verbose: false
+      # Langfuse callback — all LLM calls are traced automatically.
+      # Flash Agent sends extra_body.metadata on each call for rich trace context.
+      success_callback: ["langfuse"]
+      failure_callback: ["langfuse"]
+      # Retry settings — automatic retry on transient failures
+      num_retries: 3
+      retry_after: 30
 
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
