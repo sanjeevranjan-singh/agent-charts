@@ -69,30 +69,8 @@ spec:
                     name: {{ .Values.agent.name }}-metadata
                     key: MODEL_ALIAS
               
-              # Tracing Configuration
-              - name: TRACE_TAGS
-                value: {{ .Values.agent.traceTags | join "," | quote }}
-
-              - name: OTEL_SERVICE_NAME
-                value: {{ .Values.agent.name }}
-
-              - name: OTEL_EXPORTER_OTLP_ENDPOINT
-                valueFrom:
-                  configMapKeyRef:
-                    name: {{ .Values.agent.name }}-metadata
-                    key: OTEL_EXPORTER_OTLP_ENDPOINT
-
-              - name: LANGFUSE_PUBLIC_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: {{ .Values.agent.name }}-secret
-                    key: LANGFUSE_PUBLIC_KEY
-
-              - name: LANGFUSE_SECRET_KEY
-                valueFrom:
-                  secretKeyRef:
-                    name: {{ .Values.agent.name }}-secret
-                    key: LANGFUSE_SECRET_KEY
+              # NOTE: OTEL and Langfuse env vars removed — LiteLLM proxy
+              # handles all Langfuse tracing via success_callback.
 
   {{- range $env := .Values.agent.deploymentEnv }}
               - name: {{ $env.name }}
