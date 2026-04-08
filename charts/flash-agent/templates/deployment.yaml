@@ -75,6 +75,12 @@ spec:
                   key: {{ $env.key }}
 {{- end }}
 
+{{- if .Values.sidecar.enabled }}
+            # Override OPENAI_BASE_URL to route through agent-sidecar
+            - name: OPENAI_BASE_URL
+              value: "http://localhost:{{ .Values.sidecar.port }}/v1"
+{{- end }}
+
             # MCP interactions log
             {{- if .Values.agent.mcpInteractionsFile }}
             - name: MCP_INTERACTIONS_FILE
@@ -85,6 +91,38 @@ spec:
             - name: agent-metadata
               mountPath: /etc/agent/metadata
               readOnly: true
+
+{{- if .Values.sidecar.enabled }}
+        # ── agent-sidecar: transparent metadata-injection proxy ──────
+        - name: {{ .Values.sidecar.name }}
+          image: "{{ .Values.sidecar.image.registry }}/{{ .Values.sidecar.image.repository }}:{{ .Values.sidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.sidecar.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - containerPort: {{ .Values.sidecar.port }}
+              protocol: TCP
+          env:
+            - name: SIDECAR_PORT
+              value: {{ .Values.sidecar.port | quote }}
+            - name: UPSTREAM_URL
+              value: {{ .Values.sidecar.upstream | quote }}
+            - name: EXPERIMENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: EXPERIMENT_ID
+            - name: EXPERIMENT_RUN_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: EXPERIMENT_RUN_ID
+            - name: WORKFLOW_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: WORKFLOW_NAME
+          resources:
+            {{- toYaml .Values.sidecar.resources | nindent 12 }}
+{{- end }}
 
       volumes:
         - name: agent-metadata

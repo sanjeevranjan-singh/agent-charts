@@ -39,6 +39,16 @@ agent:
     SCAN_INTERVAL: "60"       # seconds; 0 = run once (CronJob), >0 = continuous (Deployment)
     LOG_TAIL_LINES: "500"
 
+    # --- Experiment context (injected by install-agent via Argo template variables) ---
+    # Empty defaults: flash-agent works with or without experiment context.
+    # When running inside an Argo Workflow, install-agent passes:
+    #   --set agent.config.EXPERIMENT_ID={{workflow.labels.workflow_id}}
+    #   --set agent.config.EXPERIMENT_RUN_ID={{workflow.uid}}
+    #   --set agent.config.WORKFLOW_NAME={{workflow.labels.subject}}
+    EXPERIMENT_ID: ""
+    EXPERIMENT_RUN_ID: ""
+    WORKFLOW_NAME: ""
+
     # --- MCP tool servers ---
     K8S_MCP_URL: "http://kubernetes-mcp-server.litmus.svc.cluster.local:8081/mcp"
     PROM_MCP_URL: "http://prometheus-mcp-server.litmus.svc.cluster.local:9090/mcp"
@@ -70,8 +80,36 @@ agent:
     # Chaos
     - name: CHAOS_NAMESPACE
       key: CHAOS_NAMESPACE
+    # Experiment context (populated by install-agent --set from Argo template variables)
+    - name: EXPERIMENT_ID
+      key: EXPERIMENT_ID
+    - name: EXPERIMENT_RUN_ID
+      key: EXPERIMENT_RUN_ID
+    - name: WORKFLOW_NAME
+      key: WORKFLOW_NAME
 
   mcpInteractionsFile: "/tmp/mcp/mcp_interactions.jsonl"
+
+# ── agent-sidecar: transparent metadata-injection proxy ──────────────
+# When enabled, a lightweight sidecar container intercepts agent→LiteLLM
+# requests, injects experiment context (EXPERIMENT_ID, EXPERIMENT_RUN_ID,
+# WORKFLOW_NAME) into the metadata field, and forwards to upstream.
+# The agent has ZERO awareness of experiment context.
+sidecar:
+  enabled: true
+  name: agent-sidecar
+  image:
+    registry: docker.io
+    repository: agentcert/agent-sidecar
+    tag: latest
+    pullPolicy: Always
+  port: 4001
+  # The real LiteLLM proxy URL — sidecar forwards enriched requests here
+  upstream: "http://litellm-proxy.litellm.svc.cluster.local:4000"
+  resources:
+    limits:
+      cpu: "100m"
+      memory: "64Mi"
 
 env:
   mongoUri: mongodb://mongo-mongodb:27017
