@@ -73,11 +73,15 @@ spec:
               # handles all Langfuse tracing via success_callback.
 
   {{- range $env := .Values.agent.deploymentEnv }}
+  {{- if and $.Values.sidecar.enabled (eq $env.name "OPENAI_BASE_URL") }}
+  {{- /* Skip — sidecar override below takes precedence */ -}}
+  {{- else }}
               - name: {{ $env.name }}
                 valueFrom:
                   configMapKeyRef:
                     name: {{ $.Values.agent.name }}-metadata
                     key: {{ $env.key }}
+  {{- end }}
   {{- end }}
 
   {{- if .Values.sidecar.enabled }}
