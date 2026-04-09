@@ -90,6 +90,12 @@ spec:
                 value: "http://localhost:{{ .Values.sidecar.port }}/v1"
   {{- end }}
 
+              # MCP interactions log
+              {{- if .Values.agent.mcpInteractionsFile }}
+              - name: MCP_INTERACTIONS_FILE
+                value: {{ .Values.agent.mcpInteractionsFile | quote }}
+              {{- end }}
+
             volumeMounts:
               - name: agent-metadata
                 mountPath: /etc/agent/metadata
