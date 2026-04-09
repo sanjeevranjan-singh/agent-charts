@@ -36,6 +36,7 @@ agent:
     # --- Agent runtime ---
     K8S_NAMESPACE: "sock-shop"
     CHAOS_NAMESPACE: "litmus"
+    TARGET_APP_POD_PATTERN: "sock-shop"
     SCAN_INTERVAL: "60"       # seconds; 0 = run once (CronJob), >0 = continuous (Deployment)
     LOG_TAIL_LINES: "500"
 
@@ -80,6 +81,8 @@ agent:
     # Chaos
     - name: CHAOS_NAMESPACE
       key: CHAOS_NAMESPACE
+    - name: TARGET_APP_POD_PATTERN
+      key: TARGET_APP_POD_PATTERN
     # Experiment context (populated by install-agent --set from Argo template variables)
     - name: EXPERIMENT_ID
       key: EXPERIMENT_ID
