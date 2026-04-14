@@ -109,6 +109,8 @@ sidecar:
   port: 4001
   # The real LiteLLM proxy URL — sidecar forwards enriched requests here
   upstream: "http://litellm-proxy.litellm.svc.cluster.local:4000"
+  # Injection mode: "openai-metadata" | "http-header" | "none"
+  injectionMode: "openai-metadata"
   resources:
     limits:
       cpu: "100m"
