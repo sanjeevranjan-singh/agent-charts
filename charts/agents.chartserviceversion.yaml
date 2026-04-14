@@ -32,6 +32,19 @@ spec:
       capabilities:
         - log-metrics-extraction
         - langfuse-trace-reporting
+      # Install template metadata — used by the GraphQL server to identify and
+      # enrich the install step at experiment-save time.
+      installTemplateName: "install-agent"
+      installImage: "agentcert/agentcert-install-agent:latest"
+      # Context injection — Helm --set args the server injects into the install
+      # template so the agent receives experiment context at runtime.
+      contextInjection:
+        - helmPath: "agent.config.EXPERIMENT_ID"
+          source: "{{workflow.labels.workflow_id}}"
+        - helmPath: "agent.config.EXPERIMENT_RUN_ID"
+          source: "{{workflow.uid}}"
+        - helmPath: "agent.config.WORKFLOW_NAME"
+          source: "{{workflow.labels.subject}}"
     - name: k8s-agent
       displayName: K8s Agent
       description: "Kubernetes fault detection and autonomous remediation agent that monitors cluster health and auto-fixes issues."
@@ -39,3 +52,12 @@ spec:
       capabilities:
         - fault-detection
         - auto-remediation
+      installTemplateName: "install-agent"
+      installImage: "agentcert/agentcert-install-agent:latest"
+      contextInjection:
+        - helmPath: "agent.config.EXPERIMENT_ID"
+          source: "{{workflow.labels.workflow_id}}"
+        - helmPath: "agent.config.EXPERIMENT_RUN_ID"
+          source: "{{workflow.uid}}"
+        - helmPath: "agent.config.WORKFLOW_NAME"
+          source: "{{workflow.labels.subject}}"
