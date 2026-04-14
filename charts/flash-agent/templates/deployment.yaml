@@ -109,6 +109,8 @@ spec:
               value: {{ .Values.sidecar.port | quote }}
             - name: UPSTREAM_URL
               value: {{ .Values.sidecar.upstream | quote }}
+            - name: INJECTION_MODE
+              value: {{ .Values.sidecar.injectionMode | default "openai-metadata" | quote }}
             - name: EXPERIMENT_ID
               valueFrom:
                 configMapKeyRef:
