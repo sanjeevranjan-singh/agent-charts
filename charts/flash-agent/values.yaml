@@ -1,3 +1,6 @@
+# Agent identity — set at deploy time via: helm install --set agentId=<uuid>
+agentId: ""
+
 app:
   chaosCenter:
     endpoint: http://chaoscenter.litmus.svc.cluster.local
