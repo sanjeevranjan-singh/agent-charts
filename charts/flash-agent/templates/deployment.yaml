@@ -126,6 +126,10 @@ spec:
                 configMapKeyRef:
                   name: {{ .Values.agent.name }}-metadata
                   key: WORKFLOW_NAME
+            {{- if .Values.agentId }}
+            - name: AGENT_ID
+              value: {{ .Values.agentId | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.sidecar.resources | nindent 12 }}
 {{- end }}
