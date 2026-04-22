@@ -6,23 +6,19 @@ metadata:
 data:
   config.yaml: |
     model_list:
-      - model_name: gpt-4.1-mini
+      # model_name is substituted from AZURE_OPENAI_DEPLOYMENT in build-litellm.sh.
+      # Agents call LiteLLM with model=<deployment-name>; traces show the real model.
+      - model_name: LITELLM_MODEL_NAME
         litellm_params:
-          model: azure/gpt-4.1-mini
+          model: os.environ/AZURE_MODEL
           api_base: os.environ/AZURE_API_BASE
           api_key: os.environ/AZURE_API_KEY
-          api_version: "2025-01-01-preview"
-
-      # Alias so agents can use "gpt-4o-mini" as MODEL_ALIAS
-      - model_name: gpt-4o-mini
-        litellm_params:
-          model: azure/gpt-4.1-mini
-          api_base: os.environ/AZURE_API_BASE
-          api_key: os.environ/AZURE_API_KEY
-          api_version: "2025-01-01-preview"
+          api_version: os.environ/AZURE_API_VERSION
+        model_info:
+          base_model: os.environ/AZURE_MODEL
 
     litellm_settings:
-      drop_params: true
+      drop_params: false
       set_verbose: false
       # Langfuse callback — all LLM calls are traced automatically.
       # Flash Agent sends extra_body.metadata on each call for rich trace context.

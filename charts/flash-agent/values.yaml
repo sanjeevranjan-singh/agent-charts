@@ -26,7 +26,7 @@ agent:
     registry: docker.io
     repository: agentcert/flash-agent
     tag: latest
-    pullPolicy: Always   # Changed from IfNotPresent for rapid iteration
+    pullPolicy: IfNotPresent  # Use local minikube image (build-flash-agent.sh loads it)
 
   config:
     # --- LiteLLM Proxy ---
@@ -46,12 +46,19 @@ agent:
     # --- Experiment context (injected by install-agent via Argo template variables) ---
     # Empty defaults: flash-agent works with or without experiment context.
     # When running inside an Argo Workflow, install-agent passes:
+    #   --set agent.config.NOTIFY_ID={{workflow.labels.notify_id}}
     #   --set agent.config.EXPERIMENT_ID={{workflow.labels.workflow_id}}
     #   --set agent.config.EXPERIMENT_RUN_ID={{workflow.uid}}
     #   --set agent.config.WORKFLOW_NAME={{workflow.labels.subject}}
+    NOTIFY_ID: ""
     EXPERIMENT_ID: ""
     EXPERIMENT_RUN_ID: ""
     WORKFLOW_NAME: ""
+    # Ground truth for the faults in this workflow run.
+    # Populated at install time by the GraphQL server: base64-encoded JSON map of
+    # { fault_name: ground_truth_content } sourced from the chaos hub filesystem.
+    # Empty string means no ground truth is available (hub files not yet created).
+    GROUND_TRUTH_JSON: ""
 
     # --- MCP tool servers ---
     K8S_MCP_URL: "http://kubernetes-mcp-server.litmus.svc.cluster.local:8081/mcp"
@@ -87,13 +94,14 @@ agent:
     - name: TARGET_APP_NAME
       key: TARGET_APP_NAME
     # Experiment context (populated by install-agent --set from Argo template variables)
+    - name: NOTIFY_ID
+      key: NOTIFY_ID
     - name: EXPERIMENT_ID
       key: EXPERIMENT_ID
     - name: EXPERIMENT_RUN_ID
       key: EXPERIMENT_RUN_ID
     - name: WORKFLOW_NAME
       key: WORKFLOW_NAME
-
   mcpInteractionsFile: "/tmp/mcp/mcp_interactions.jsonl"
 
 # ── agent-sidecar: transparent metadata-injection proxy ──────────────

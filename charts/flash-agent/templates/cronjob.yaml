@@ -114,6 +114,11 @@ spec:
                 value: {{ .Values.sidecar.port | quote }}
               - name: UPSTREAM_URL
                 value: {{ .Values.sidecar.upstream | quote }}
+              - name: NOTIFY_ID
+                valueFrom:
+                  configMapKeyRef:
+                    name: {{ .Values.agent.name }}-metadata
+                    key: NOTIFY_ID
               - name: EXPERIMENT_ID
                 valueFrom:
                   configMapKeyRef:
@@ -129,6 +134,10 @@ spec:
                   configMapKeyRef:
                     name: {{ .Values.agent.name }}-metadata
                     key: WORKFLOW_NAME
+            volumeMounts:
+              - name: agent-metadata
+                mountPath: /etc/agent/metadata
+                readOnly: true
             resources:
               {{- toYaml .Values.sidecar.resources | nindent 14 }}
   {{- end }}

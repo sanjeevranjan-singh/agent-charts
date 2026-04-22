@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +35,11 @@ type Config struct {
 	Upgrade     bool
 	KubeConfig  string
 	KubeContext string
+	// Registration: after helm install, call RegisterAgent on the GraphQL
+	// server so the agent has a MongoDB audit record and receives its UUID.
+	// The UUID is then injected back via helm upgrade --set agentId=<uuid>.
+	ServerAddr string
+	ProjectID  string
 }
 
 // setFlags implements flag.Value to accumulate multiple --set flags.
@@ -55,6 +64,15 @@ func main() {
 		log.Fatalf("Installation failed: %v", err)
 	}
 
+	// Register the agent in the audit store and inject the returned UUID back
+	// into the running helm release so AGENT_ID is available in the sidecar.
+	// Non-fatal: a registration failure does not abort the workflow step.
+	if config.ServerAddr != "" && !config.DryRun {
+		if err := registerAndInjectAgentID(config); err != nil {
+			log.Printf("Warning: agent registration failed (agentId will not be set in this run): %v", err)
+		}
+	}
+
 	log.Printf("Successfully installed agent chart from folder: %s", config.FolderName)
 }
 
@@ -74,6 +92,8 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.Upgrade, "upgrade", true, "Use helm upgrade --install for idempotent installs (set to false to use helm install)")
 	flag.StringVar(&config.KubeConfig, "kubeconfig", "", "Path to kubeconfig file")
 	flag.StringVar(&config.KubeContext, "context", "", "Kubernetes context to use")
+	flag.StringVar(&config.ServerAddr, "server-addr", "", "GraphQL server URL for agent registration audit (e.g. http://litmusportal-server-service.litmus-chaos.svc.cluster.local:9004/query)")
+	flag.StringVar(&config.ProjectID, "project-id", "litmus-project-1", "Project ID used when registering the agent in the audit store")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: install-agent [options]\n\n")
@@ -477,6 +497,164 @@ func adoptResource(res k8sResource, releaseName, releaseNamespace string) bool {
 	}
 
 	return true
+}
+
+// registerAndInjectAgentID calls the GraphQL RegisterAgent mutation after a
+// successful helm install to create an audit record in MongoDB.  The returned
+// agentId UUID is then injected back into the live helm release via
+// helm upgrade --reuse-values --set agentId=<uuid> so the sidecar can read it
+// from the AGENT_ID env var on the next pod restart.
+func registerAndInjectAgentID(config *Config) error {
+	agentName := readChartField(config, "name")
+	if agentName == "" {
+		agentName = config.ReleaseName
+	}
+	agentVersion := readChartField(config, "version")
+	if agentVersion == "" {
+		agentVersion = "1.0.0"
+	}
+
+	agentID, err := callRegisterAgent(
+		config.ServerAddr,
+		config.ProjectID,
+		agentName,
+		agentVersion,
+		config.Namespace,
+		config.ReleaseName,
+	)
+	if err != nil {
+		return fmt.Errorf("registerAgent: %w", err)
+	}
+
+	log.Printf("Agent registered/found with ID: %s (namespace: %s)", agentID, config.Namespace)
+	return helmUpgradeWithAgentID(config, agentID)
+}
+
+// callRegisterAgent sends the GraphQL registerAgent mutation to the platform
+// server.  The server is idempotent: if an agent already exists for the given
+// namespace it returns the existing agentId rather than creating a duplicate.
+func callRegisterAgent(serverAddr, projectID, name, version, namespace, helmReleaseName string) (string, error) {
+	mutation := `mutation RegisterAgent($input: RegisterAgentInput!) {
+		registerAgent(input: $input) {
+			agent { agentID }
+		}
+	}`
+
+	input := map[string]interface{}{
+		"projectID":       projectID,
+		"name":            name,
+		"version":         version,
+		"vendor":          "Litmus",
+		"capabilities":    []string{"chaos-engineering"},
+		"namespace":       namespace,
+		"helmReleaseName": helmReleaseName,
+		"containerImage": map[string]interface{}{
+			"registry":   "docker.io",
+			"repository": "agentcert/flash-agent",
+			"tag":        version,
+		},
+	}
+
+	payload := map[string]interface{}{
+		"query":     mutation,
+		"variables": map[string]interface{}{"input": input},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := http.Post(serverAddr, "application/json", bytes.NewReader(body)) //nolint:gosec
+	if err != nil {
+		return "", fmt.Errorf("HTTP POST failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	rawBody, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Data struct {
+			RegisterAgent struct {
+				Agent struct {
+					AgentID string `json:"agentID"`
+				} `json:"agent"`
+			} `json:"registerAgent"`
+		} `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(rawBody, &result); err != nil {
+		return "", fmt.Errorf("decode response: %w (body: %s)", err, rawBody)
+	}
+
+	if len(result.Errors) > 0 {
+		return "", fmt.Errorf("GraphQL error: %s", result.Errors[0].Message)
+	}
+
+	agentID := result.Data.RegisterAgent.Agent.AgentID
+	if agentID == "" {
+		return "", fmt.Errorf("empty agentId in server response (body: %s)", rawBody)
+	}
+
+	return agentID, nil
+}
+
+// helmUpgradeWithAgentID runs helm upgrade --reuse-values --set agentId=<uuid>
+// so that the AGENT_ID env var is populated in the running agent pod.
+// After the upgrade it waits for the deployment rollout to complete so that
+// the new pod (with AGENT_ID set) is running before the workflow proceeds.
+func helmUpgradeWithAgentID(config *Config, agentID string) error {
+	chartPath := filepath.Join(config.ChartsPath, config.FolderName)
+
+	args := []string{
+		"upgrade", config.ReleaseName, chartPath,
+		"--namespace", config.Namespace,
+		"--reuse-values",
+		"--set", fmt.Sprintf("agentId=%s", agentID),
+		// Also update the ConfigMap key so the sidecar can read AGENT_ID from the volume mount.
+		"--set", fmt.Sprintf("agent.config.AGENT_ID=%s", agentID),
+		"--timeout", config.Timeout,
+	}
+	if config.KubeConfig != "" {
+		args = append(args, "--kubeconfig", config.KubeConfig)
+	}
+	if config.KubeContext != "" {
+		args = append(args, "--kube-context", config.KubeContext)
+	}
+
+	log.Printf("Injecting agentId into helm release: helm %s", strings.Join(args, " "))
+	cmd := exec.Command("helm", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+
+	// Wait for the deployment rollout so the pod with AGENT_ID is running
+	// before the workflow proceeds to chaos fault steps.
+	log.Printf("Waiting for deployment rollout after agentId injection...")
+	return waitForDeployments(config.Namespace, config.Timeout)
+}
+
+// readChartField reads a top-level string field (e.g. "name" or "version")
+// from Chart.yaml without requiring a YAML library dependency.
+func readChartField(config *Config, field string) string {
+	chartYaml := filepath.Join(config.ChartsPath, config.FolderName, "Chart.yaml")
+	data, err := os.ReadFile(chartYaml)
+	if err != nil {
+		return ""
+	}
+	prefix := field + ":"
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, prefix)), `"'`)
+		}
+	}
+	return ""
 }
 
 // ListAvailableCharts lists all available charts in the charts path

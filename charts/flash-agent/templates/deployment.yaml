@@ -111,6 +111,11 @@ spec:
               value: {{ .Values.sidecar.upstream | quote }}
             - name: INJECTION_MODE
               value: {{ .Values.sidecar.injectionMode | default "openai-metadata" | quote }}
+            - name: NOTIFY_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ .Values.agent.name }}-metadata
+                  key: NOTIFY_ID
             - name: EXPERIMENT_ID
               valueFrom:
                 configMapKeyRef:
@@ -130,6 +135,10 @@ spec:
             - name: AGENT_ID
               value: {{ .Values.agentId | quote }}
             {{- end }}
+          volumeMounts:
+            - name: agent-metadata
+              mountPath: /etc/agent/metadata
+              readOnly: true
           resources:
             {{- toYaml .Values.sidecar.resources | nindent 12 }}
 {{- end }}
