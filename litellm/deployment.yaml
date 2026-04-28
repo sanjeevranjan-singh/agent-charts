@@ -71,6 +71,10 @@ spec:
               mountPath: /app/config.yaml
               subPath: config.yaml
               readOnly: true
+            - name: config
+              mountPath: /app/custom_callbacks.py
+              subPath: custom_callbacks.py
+              readOnly: true
           resources:
             requests:
               cpu: 250m

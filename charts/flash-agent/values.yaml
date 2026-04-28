@@ -24,9 +24,9 @@ agent:
 
   containerImage:
     registry: docker.io
-    repository: agentcert/flash-agent
+    repository: agentcert/agentcert-flash-agent
     tag: latest
-    pullPolicy: IfNotPresent  # Use local minikube image (build-flash-agent.sh loads it)
+    pullPolicy: Always
 
   config:
     # --- LiteLLM Proxy ---

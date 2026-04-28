@@ -24,6 +24,8 @@ data:
       # Flash Agent sends extra_body.metadata on each call for rich trace context.
       success_callback: ["langfuse"]
       failure_callback: ["langfuse"]
+      # Custom callback emits durable legacy-named spans as child observations.
+      callbacks: ["custom_callbacks.proxy_handler_instance"]
       # Retry settings — automatic retry on transient failures
       num_retries: 3
       retry_after: 30
@@ -31,3 +33,128 @@ data:
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
       allow_requests_on_health: true
+
+  custom_callbacks.py: |
+    import os
+    import uuid
+    from datetime import datetime, timezone, timedelta
+
+    import requests
+    from litellm.integrations.custom_logger import CustomLogger
+
+
+    def _iso_utc(dt: datetime) -> str:
+      dt = dt.astimezone(timezone.utc)
+      return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
+
+
+    class LegacySpanEmitter(CustomLogger):
+      """Emit legacy LiteLLM proxy span names to Langfuse via ingestion API."""
+
+      _NAMES = (
+        "Received Proxy Server Request",
+        "auth",
+        "router",
+        "proxy_pre_call",
+      )
+
+      def _langfuse_host(self) -> str:
+        return (os.getenv("LANGFUSE_HOST") or "").rstrip("/")
+
+      def _auth(self):
+        public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+        secret_key = os.getenv("LANGFUSE_SECRET_KEY")
+        if not public_key or not secret_key:
+          return None
+        return (public_key, secret_key)
+
+      def _extract_metadata(self, kwargs: dict) -> dict:
+        litellm_params = kwargs.get("litellm_params") or {}
+        metadata = litellm_params.get("metadata") or {}
+        return metadata if isinstance(metadata, dict) else {}
+
+      def _emit_span(self, trace_id: str, name: str, start_time: datetime, end_time: datetime, metadata: dict) -> None:
+        host = self._langfuse_host()
+        auth = self._auth()
+        if not host or not auth or not trace_id:
+          return
+
+        span_id = str(uuid.uuid4())
+        ingest_body = {
+          "batch": [
+            {
+              "id": str(uuid.uuid4()),
+              "type": "span-create",
+              "timestamp": _iso_utc(datetime.now(timezone.utc)),
+              "body": {
+                "id": span_id,
+                "traceId": trace_id,
+                "name": name,
+                "startTime": _iso_utc(start_time),
+                "endTime": _iso_utc(end_time),
+                "metadata": metadata,
+              },
+            }
+          ]
+        }
+
+        try:
+          requests.post(
+            f"{host}/api/public/ingestion",
+            json=ingest_body,
+            auth=auth,
+            timeout=3,
+          )
+        except Exception:
+          # Never block or fail proxy calls because of callback logging.
+          pass
+
+      def _emit_legacy_spans(self, kwargs: dict, start_time, end_time, outcome: str) -> None:
+        metadata = self._extract_metadata(kwargs)
+        trace_id = metadata.get("trace_id") or metadata.get("notify_id") or metadata.get("experiment_run_id")
+        if not trace_id:
+          return
+
+        # Keep span metadata lightweight and safe for blind-agent mode.
+        span_metadata = {
+          "legacy_span_emitter": True,
+          "legacy_span_source": "litellm_custom_callback",
+          "legacy_span_outcome": outcome,
+          "generation_name": metadata.get("generation_name"),
+          "step": metadata.get("step"),
+          "namespace": metadata.get("namespace"),
+          "agent_id": metadata.get("agent_id"),
+          "agent_name": metadata.get("agent_name"),
+          "experiment_id": metadata.get("experiment_id"),
+          "experiment_run_id": metadata.get("experiment_run_id"),
+          "notify_id": metadata.get("notify_id") or metadata.get("trace_id"),
+          "workflow_name": metadata.get("workflow_name"),
+          "scan_id": metadata.get("scan_id"),
+        }
+
+        st = start_time if isinstance(start_time, datetime) else datetime.now(timezone.utc)
+        et = end_time if isinstance(end_time, datetime) else datetime.now(timezone.utc)
+        if et < st:
+          et = st
+
+        span_width = max((et - st) / max(len(self._NAMES), 1), timedelta(milliseconds=1))
+        current = st
+        for name in self._NAMES:
+          nxt = min(current + span_width, et)
+          self._emit_span(
+            trace_id=trace_id,
+            name=name,
+            start_time=current,
+            end_time=nxt,
+            metadata=span_metadata,
+          )
+          current = nxt
+
+      async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
+        self._emit_legacy_spans(kwargs, start_time, end_time, outcome="success")
+
+      async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
+        self._emit_legacy_spans(kwargs, start_time, end_time, outcome="failure")
+
+
+    proxy_handler_instance = LegacySpanEmitter()

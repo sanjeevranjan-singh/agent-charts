@@ -17,7 +17,7 @@ spec:
           containers:
           - name: agent
             image: "{{ .Values.agent.containerImage.registry }}/{{ .Values.agent.containerImage.repository }}:{{ .Values.agent.containerImage.tag }}"
-            imagePullPolicy: IfNotPresent
+            imagePullPolicy: Always
 
             resources:
               {{- toYaml .Values.resources | nindent 14 }}

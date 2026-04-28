@@ -550,7 +550,7 @@ func callRegisterAgent(serverAddr, projectID, name, version, namespace, helmRele
 		"helmReleaseName": helmReleaseName,
 		"containerImage": map[string]interface{}{
 			"registry":   "docker.io",
-			"repository": "agentcert/flash-agent",
+			"repository": "agentcert/agentcert-flash-agent",
 			"tag":        version,
 		},
 	}
