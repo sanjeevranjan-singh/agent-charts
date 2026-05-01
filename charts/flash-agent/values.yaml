@@ -49,12 +49,6 @@ agent:
     AGENT_REASONING_MODE: "single-shot"  # "single-shot" or "react" (multi-turn ReAct loop, opt-in)
     AGENT_REACT_MAX_STEPS: "8"           # max tool-call iterations when AGENT_REASONING_MODE=react
 
-    # --- Prometheus saturation rubric (LLM rubric uses ⚠️ glyph above this) ---
-    # Flag a pod when its current CPU/memory usage exceeds this fraction of its
-    # OWN declared resource limit. Domain-agnostic: each pod is judged against
-    # the limit its operator declared, not against any global hard-coded value.
-    PROM_SATURATION_WARN: "0.8"
-
     # --- Experiment context (injected by install-agent via Argo template variables) ---
     # Empty defaults: flash-agent works with or without experiment context.
     # When running inside an Argo Workflow, install-agent passes:
@@ -100,8 +94,6 @@ agent:
       key: AGENT_REASONING_MODE
     - name: AGENT_REACT_MAX_STEPS
       key: AGENT_REACT_MAX_STEPS
-    - name: PROM_SATURATION_WARN
-      key: PROM_SATURATION_WARN
     # OpenAI SDK compat (separate keys with /v1 suffix)
     - name: OPENAI_BASE_URL
       key: OPENAI_BASE_URL
