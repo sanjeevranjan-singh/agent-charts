@@ -45,6 +45,9 @@ agent:
     SCAN_HEALTH_THRESHOLD: "100"  # score below which fast scan engages (0–100)
     ENABLE_PROMETHEUS_SNAPSHOT: "true"  # always-augment kubernetes MCP with Prometheus metrics
     LOG_TAIL_LINES: "500"
+    LOG_TRIM: "8"           # greedy log dedup window (0=disable, 8=AIOpsLab default)
+    AGENT_REASONING_MODE: "single-shot"  # "single-shot" or "react" (multi-turn ReAct loop, opt-in)
+    AGENT_REACT_MAX_STEPS: "8"           # max tool-call iterations when AGENT_REASONING_MODE=react
 
     # --- Prometheus saturation rubric (LLM rubric uses ⚠️ glyph above this) ---
     # Flag a pod when its current CPU/memory usage exceeds this fraction of its
@@ -91,6 +94,12 @@ agent:
       key: ENABLE_PROMETHEUS_SNAPSHOT
     - name: LOG_TAIL_LINES
       key: LOG_TAIL_LINES
+    - name: LOG_TRIM
+      key: LOG_TRIM
+    - name: AGENT_REASONING_MODE
+      key: AGENT_REASONING_MODE
+    - name: AGENT_REACT_MAX_STEPS
+      key: AGENT_REACT_MAX_STEPS
     - name: PROM_SATURATION_WARN
       key: PROM_SATURATION_WARN
     # OpenAI SDK compat (separate keys with /v1 suffix)
