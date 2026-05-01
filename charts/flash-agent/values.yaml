@@ -43,6 +43,7 @@ agent:
     SCAN_INTERVAL: "60"       # seconds; 0 = run once (CronJob), >0 = continuous (Deployment)
     SCAN_INTERVAL_FAST: "15"  # seconds; used when health is degraded (adaptive scan)
     SCAN_HEALTH_THRESHOLD: "100"  # score below which fast scan engages (0–100)
+    ENABLE_PROMETHEUS_SNAPSHOT: "true"  # always-augment kubernetes MCP with Prometheus metrics
     LOG_TAIL_LINES: "500"
 
     # --- Experiment context (injected by install-agent via Argo template variables) ---
@@ -80,6 +81,8 @@ agent:
       key: SCAN_INTERVAL_FAST
     - name: SCAN_HEALTH_THRESHOLD
       key: SCAN_HEALTH_THRESHOLD
+    - name: ENABLE_PROMETHEUS_SNAPSHOT
+      key: ENABLE_PROMETHEUS_SNAPSHOT
     - name: LOG_TAIL_LINES
       key: LOG_TAIL_LINES
     # OpenAI SDK compat (separate keys with /v1 suffix)
