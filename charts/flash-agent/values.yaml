@@ -46,6 +46,12 @@ agent:
     ENABLE_PROMETHEUS_SNAPSHOT: "true"  # always-augment kubernetes MCP with Prometheus metrics
     LOG_TAIL_LINES: "500"
 
+    # --- Prometheus saturation rubric (LLM rubric uses ⚠️ glyph above this) ---
+    # Flag a pod when its current CPU/memory usage exceeds this fraction of its
+    # OWN declared resource limit. Domain-agnostic: each pod is judged against
+    # the limit its operator declared, not against any global hard-coded value.
+    PROM_SATURATION_WARN: "0.8"
+
     # --- Experiment context (injected by install-agent via Argo template variables) ---
     # Empty defaults: flash-agent works with or without experiment context.
     # When running inside an Argo Workflow, install-agent passes:
@@ -85,6 +91,8 @@ agent:
       key: ENABLE_PROMETHEUS_SNAPSHOT
     - name: LOG_TAIL_LINES
       key: LOG_TAIL_LINES
+    - name: PROM_SATURATION_WARN
+      key: PROM_SATURATION_WARN
     # OpenAI SDK compat (separate keys with /v1 suffix)
     - name: OPENAI_BASE_URL
       key: OPENAI_BASE_URL
