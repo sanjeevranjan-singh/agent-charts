@@ -1,0 +1,18 @@
+{{- if .Values.watermark.persist }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.agent.name }}-watermark
+  labels:
+    app: {{ .Values.agent.name }}
+    component: watermark-state
+spec:
+  accessModes:
+    - {{ .Values.watermark.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.watermark.size | default "64Mi" | quote }}
+  {{- if .Values.watermark.storageClass }}
+  storageClassName: {{ .Values.watermark.storageClass | quote }}
+  {{- end }}
+{{- end }}

@@ -36,6 +36,11 @@ agent:
     OPENAI_BASE_URL: "http://litellm-proxy.litellm.svc.cluster.local:4000/v1"
     OPENAI_API_KEY: "sk-agentcert-2026"
 
+    # --- Persistent watermark (deployment mode only) ---
+    # Loaded by flash-agent on start, fsynced after each successful scan.
+    # Set empty to disable persistence (in-memory only — fine for cronjob).
+    WATERMARK_FILE: "/var/lib/flash-agent/watermark.json"
+
     # --- Agent runtime ---
     K8S_NAMESPACE: "sock-shop"
     CHAOS_NAMESPACE: "litmus"
@@ -148,7 +153,41 @@ sidecar:
 env:
   mongoUri: mongodb://mongo-mongodb:27017
 
+# ── Persistent watermark state ───────────────────────────────────────
+# When persist=true, a PVC is created and mounted at /var/lib/flash-agent
+# so the MCP event watermark survives pod restarts and image upgrades.
+# Without this, every restart re-flags ~minutes of stale signals until
+# the in-memory watermark catches up.
+watermark:
+  persist: true
+  storageClass: ""        # empty = cluster default
+  size: 64Mi
+  accessMode: ReadWriteOnce
+
+# ── Pod hardening: probes, grace, priority ───────────────────────────
+# Probes use file markers written by the agent (touch on first ready /
+# end of every scan).  Liveness fires only if no scan completed in
+# `livenessStaleSeconds`, so a single slow LLM call won't kill the pod.
+probes:
+  enabled: true
+  readyFile: /tmp/flash-agent-ready
+  aliveFile: /tmp/flash-agent-alive
+  livenessStaleSeconds: 180
+  initialDelaySeconds: 60
+  periodSeconds: 30
+
+# Grace period for SIGTERM handler in main.py to finish current scan.
+terminationGracePeriodSeconds: 60
+
+# Avoid eviction during memory-hog / cpu-hog experiments.  Empty string
+# disables.  "system-cluster-critical" is a built-in PriorityClass; on
+# clusters without it, set to a custom class or leave empty.
+priorityClassName: ""
+
 resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
   limits:
     cpu: "500m"
     memory: "1.5Gi"     # Bumped from 512Mi — agent needs more for LLM tool-call chains
@@ -165,10 +204,3 @@ rbac:
       - apiGroups: ["apps"]
         resources: ["deployments", "replicasets", "statefulsets"]
         verbs: ["get", "list", "watch"]
-
-cronjob:
-  schedule: "*/5 * * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 1
-  restartPolicy: OnFailure

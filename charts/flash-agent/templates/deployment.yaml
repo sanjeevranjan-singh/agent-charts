@@ -4,6 +4,8 @@ metadata:
   name: {{ .Values.agent.name }}
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ .Values.agent.name }}
@@ -11,8 +13,14 @@ spec:
     metadata:
       labels:
         app: {{ .Values.agent.name }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: {{ .Values.agent.name }}-sa
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 60 }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.agent.containerImage.registry }}/{{ .Values.agent.containerImage.repository }}:{{ .Values.agent.containerImage.tag }}"
@@ -22,6 +30,14 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
 
           env:
+            # Namespace under observation. Defaults to the release namespace
+            # for back-compat (agent observes its own namespace).  In prod-grade
+            # mode the agent lives in a stable system namespace and this is
+            # overridden at install via --set agent.config.K8S_NAMESPACE=<target>
+            # so the agent pod survives target-namespace teardown.
+            - name: K8S_NAMESPACE
+              value: {{ .Values.agent.config.K8S_NAMESPACE | default .Release.Namespace | quote }}
+
             # ChaosCenter connection
             - name: CHAOS_CENTER_ENDPOINT
               value: {{ .Values.app.chaosCenter.endpoint | quote }}
@@ -47,30 +63,53 @@ spec:
               value: {{ .Values.env.mongoUri | quote }}
 
             # LiteLLM Proxy Configuration
+            {{- if .Values.agent.config.LITELLM_URL }}
             - name: LITELLM_URL
               valueFrom:
                 configMapKeyRef:
                   name: {{ .Values.agent.name }}-metadata
                   key: LITELLM_URL
-            
+            {{- end }}
+
+            {{- if .Values.agent.secret.LITELLM_MASTER_KEY }}
             - name: LITELLM_MASTER_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.agent.name }}-secret
                   key: LITELLM_MASTER_KEY
-            
+            {{- end }}
+
+            {{- if .Values.agent.config.MODEL_ALIAS }}
             - name: MODEL_ALIAS
               valueFrom:
                 configMapKeyRef:
                   name: {{ .Values.agent.name }}-metadata
                   key: MODEL_ALIAS
-            # NOTE: OTEL and Langfuse env vars removed - LiteLLM proxy
-            # handles all Langfuse tracing via success_callback.
+            {{- end }}
+
+            # Blind-observer mode: exclude chaos tools from MCP & LLM prompt
+            - name: MCP_INCLUDE_CHAOS_TOOLS
+              value: {{ .Values.agent.config.MCP_INCLUDE_CHAOS_TOOLS | default "false" | quote }}
+
+            # MCP event recency window (seconds) — see values.yaml comment.
+            - name: EVENT_RECENCY_FALLBACK_SEC
+              value: {{ .Values.agent.config.EVENT_RECENCY_FALLBACK_SEC | default "90" | quote }}
+
+            # Scan loop (deployment mode)
+            - name: SCAN_INTERVAL
+              value: {{ .Values.agent.config.SCAN_INTERVAL | default "30" | quote }}
+            - name: SCAN_INTERVAL_FAST
+              value: {{ .Values.agent.config.SCAN_INTERVAL_FAST | default "15" | quote }}
+            - name: SCAN_HEALTH_THRESHOLD
+              value: {{ .Values.agent.config.SCAN_HEALTH_THRESHOLD | default "60" | quote }}
+
+            {{- if .Values.watermark.persist }}
+            - name: WATERMARK_FILE
+              value: {{ .Values.agent.config.WATERMARK_FILE | default "/var/lib/flash-agent/watermark.json" | quote }}
+            {{- end }}
 
 {{- range $env := .Values.agent.deploymentEnv }}
-{{- if and $.Values.sidecar.enabled (eq $env.name "OPENAI_BASE_URL") }}
-{{- /* Skip — sidecar override below takes precedence */ -}}
-{{- else }}
+{{- if not (and $.Values.sidecar.enabled (eq $env.name "OPENAI_BASE_URL")) }}
             - name: {{ $env.name }}
               valueFrom:
                 configMapKeyRef:
@@ -80,21 +119,41 @@ spec:
 {{- end }}
 
 {{- if .Values.sidecar.enabled }}
-            # Override OPENAI_BASE_URL to route through agent-sidecar
+            # When sidecar is enabled, route all LLM calls through the sidecar proxy.
+            # OPENAI_BASE_URL is intentionally not loaded from ConfigMap above when
+            # sidecar is enabled (to avoid duplicate env vars where Python uses the first).
             - name: OPENAI_BASE_URL
               value: "http://localhost:{{ .Values.sidecar.port }}/v1"
 {{- end }}
-
-            # MCP interactions log
-            {{- if .Values.agent.mcpInteractionsFile }}
-            - name: MCP_INTERACTIONS_FILE
-              value: {{ .Values.agent.mcpInteractionsFile | quote }}
-            {{- end }}
 
           volumeMounts:
             - name: agent-metadata
               mountPath: /etc/agent/metadata
               readOnly: true
+            {{- if .Values.watermark.persist }}
+            - name: watermark-state
+              mountPath: /var/lib/flash-agent
+            {{- end }}
+
+          {{- if .Values.probes.enabled }}
+          readinessProbe:
+            exec:
+              command: ["test", "-f", {{ .Values.probes.readyFile | default "/tmp/flash-agent-ready" | quote }}]
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds | default 60 }}
+            periodSeconds: {{ .Values.probes.periodSeconds | default 30 }}
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - >-
+                  test -f {{ .Values.probes.aliveFile | default "/tmp/flash-agent-alive" | quote }} &&
+                  test $(( $(date +%s) - $(stat -c %Y {{ .Values.probes.aliveFile | default "/tmp/flash-agent-alive" | quote }}) )) -lt {{ .Values.probes.livenessStaleSeconds | default 180 }}
+            initialDelaySeconds: {{ .Values.probes.initialDelaySeconds | default 60 }}
+            periodSeconds: {{ .Values.probes.periodSeconds | default 30 }}
+            failureThreshold: 3
+          {{- end }}
 
 {{- if .Values.sidecar.enabled }}
         # ── agent-sidecar: transparent metadata-injection proxy ──────
@@ -111,26 +170,17 @@ spec:
               value: {{ .Values.sidecar.upstream | quote }}
             - name: INJECTION_MODE
               value: {{ .Values.sidecar.injectionMode | default "openai-metadata" | quote }}
-            - name: NOTIFY_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.agent.name }}-metadata
-                  key: NOTIFY_ID
-            - name: EXPERIMENT_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.agent.name }}-metadata
-                  key: EXPERIMENT_ID
-            - name: EXPERIMENT_RUN_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.agent.name }}-metadata
-                  key: EXPERIMENT_RUN_ID
-            - name: WORKFLOW_NAME
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ .Values.agent.name }}-metadata
-                  key: WORKFLOW_NAME
+            - name: CONFIG_MOUNT
+              value: "/etc/agent/metadata"
+            - name: AGENT_NAME
+              value: {{ .Values.agent.name | quote }}
+            - name: AGENT_ROLE
+              value: {{ .Values.sidecar.agentRole | default "" | quote }}
+            # EXPERIMENT_ID, EXPERIMENT_RUN_ID, WORKFLOW_NAME are intentionally
+            # NOT passed as sidecar env vars.  The sidecar reads NOTIFY_ID from
+            # the ConfigMap mount to set trace_id; experiment-correlation
+            # identifiers are handled server-side (GraphQL layer) and must not
+            # be injected into LLM metadata to preserve blind-observer integrity.
             {{- if .Values.agentId }}
             - name: AGENT_ID
               value: {{ .Values.agentId | quote }}
@@ -147,3 +197,8 @@ spec:
         - name: agent-metadata
           configMap:
             name: {{ .Values.agent.name }}-metadata
+        {{- if .Values.watermark.persist }}
+        - name: watermark-state
+          persistentVolumeClaim:
+            claimName: {{ .Values.agent.name }}-watermark
+        {{- end }}
