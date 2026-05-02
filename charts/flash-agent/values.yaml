@@ -43,7 +43,9 @@ agent:
 
     # --- Agent runtime ---
     K8S_NAMESPACE: "sock-shop"
-    CHAOS_NAMESPACE: "litmus"
+    # Namespace where chaos infra + MCP servers are deployed. Override per
+    # cluster (e.g. some envs use "litmus", others "litmus-exp").
+    CHAOS_NAMESPACE: "litmus-exp"
     TARGET_APP_NAME: "sock-shop"
     SCAN_INTERVAL: "60"       # seconds; 0 = run once (CronJob), >0 = continuous (Deployment)
     SCAN_INTERVAL_FAST: "15"  # seconds; used when health is degraded (adaptive scan)
@@ -71,8 +73,10 @@ agent:
     GROUND_TRUTH_JSON: ""
 
     # --- MCP tool servers ---
-    K8S_MCP_URL: "http://kubernetes-mcp-server.litmus.svc.cluster.local:8081/mcp"
-    PROM_MCP_URL: "http://prometheus-mcp-server.litmus.svc.cluster.local:9090/mcp"
+    # Default to the same namespace as CHAOS_NAMESPACE (litmus-exp). Override
+    # K8S_MCP_URL / PROM_MCP_URL directly when the MCP servers live elsewhere.
+    K8S_MCP_URL: "http://kubernetes-mcp-server.litmus-exp.svc.cluster.local:8081/mcp"
+    PROM_MCP_URL: "http://prometheus-mcp-server.litmus-exp.svc.cluster.local:9090/mcp"
     MCP_TIMEOUT: "30"
 
   secret:
