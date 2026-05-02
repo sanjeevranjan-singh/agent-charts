@@ -49,7 +49,6 @@ agent:
     SCAN_INTERVAL_FAST: "15"  # seconds; used when health is degraded (adaptive scan)
     SCAN_HEALTH_THRESHOLD: "100"  # score below which fast scan engages (0–100)
     ENABLE_PROMETHEUS_SNAPSHOT: "true"  # always-augment kubernetes MCP with Prometheus metrics
-    LOG_TAIL_LINES: "500"
     LOG_TRIM: "8"           # greedy log dedup window (0=disable, 8=AIOpsLab default)
     AGENT_REASONING_MODE: "single-shot"  # "single-shot" or "react" (multi-turn ReAct loop, opt-in)
     AGENT_REACT_MAX_STEPS: "8"           # max tool-call iterations when AGENT_REASONING_MODE=react
@@ -80,19 +79,13 @@ agent:
     LITELLM_MASTER_KEY: "sk-agentcert-2026"
 
   deploymentEnv:
-    # Existing
-    - name: K8S_NAMESPACE
-      key: K8S_NAMESPACE
-    - name: SCAN_INTERVAL
-      key: SCAN_INTERVAL
-    - name: SCAN_INTERVAL_FAST
-      key: SCAN_INTERVAL_FAST
-    - name: SCAN_HEALTH_THRESHOLD
-      key: SCAN_HEALTH_THRESHOLD
+    # NOTE: K8S_NAMESPACE, SCAN_INTERVAL, SCAN_INTERVAL_FAST and
+    # SCAN_HEALTH_THRESHOLD are injected directly by deployment.yaml's
+    # static env block — do NOT list them here or kubelet will see
+    # duplicate env vars (it keeps the first occurrence and drops the rest,
+    # so ConfigMap-based overrides would silently no-op).
     - name: ENABLE_PROMETHEUS_SNAPSHOT
       key: ENABLE_PROMETHEUS_SNAPSHOT
-    - name: LOG_TAIL_LINES
-      key: LOG_TAIL_LINES
     - name: LOG_TRIM
       key: LOG_TRIM
     - name: AGENT_REASONING_MODE

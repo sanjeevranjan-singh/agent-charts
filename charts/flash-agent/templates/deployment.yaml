@@ -108,6 +108,21 @@ spec:
               value: {{ .Values.agent.config.WATERMARK_FILE | default "/var/lib/flash-agent/watermark.json" | quote }}
             {{- end }}
 
+            # MCP interactions log (REQUIRED by config.validate()).
+            # Path is writable inside the container (default /tmp); set
+            # agent.mcpInteractionsFile in values.yaml to override.
+            - name: MCP_INTERACTIONS_FILE
+              value: {{ .Values.agent.mcpInteractionsFile | default "/tmp/mcp/mcp_interactions.jsonl" | quote }}
+
+            # Probe file paths — kept in sync with the readiness/liveness
+            # exec probes below so kubelet and the agent agree on the path.
+            {{- if .Values.probes.enabled }}
+            - name: READY_FILE
+              value: {{ .Values.probes.readyFile | default "/tmp/flash-agent-ready" | quote }}
+            - name: ALIVE_FILE
+              value: {{ .Values.probes.aliveFile | default "/tmp/flash-agent-alive" | quote }}
+            {{- end }}
+
 {{- range $env := .Values.agent.deploymentEnv }}
 {{- if not (and $.Values.sidecar.enabled (eq $env.name "OPENAI_BASE_URL")) }}
             - name: {{ $env.name }}
